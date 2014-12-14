@@ -1,0 +1,4 @@
+.rebar
+.eunit
+ebin
+edoc
