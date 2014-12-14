@@ -17,7 +17,8 @@
 %%%   The steps of a flow need to implement the dflow behaviour.
 %%%
 %%%
-%%% The <em>dflow</em> behaviour requires the following callbacks:
+%%% The <em>dflow</em> behaviour requires the following callbacks,
+%%% please see {@link dflow_debug} for an example.
 %%%
 %%% <pre>
 %%% init(Args :: [term()]) ->
@@ -229,7 +230,6 @@
 -type step_desc() :: {StepPid :: pid(), Desc :: iodata(),
                       Children :: [step_desc()]}.
 
-
 %%--------------------------------------------------------------------
 %% @type dflow_return() =
 %%         {ok, State} |
@@ -259,7 +259,6 @@
 %%
 %% @end
 %%--------------------------------------------------------------------
-
 
 -type dflow_return() ::
         {ok, State :: term()} |

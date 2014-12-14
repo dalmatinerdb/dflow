@@ -1,4 +1,0 @@
-%% encoding: UTF-8
-{application,dflow}.
-{packages,[]}.
-{modules,[dflow,dflow_app,dflow_sup]}.
