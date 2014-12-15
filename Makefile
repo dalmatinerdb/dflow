@@ -47,7 +47,7 @@ xref:
 	$(REBAR) xref skip_deps=true
 
 console: all
-	erl -pa ebin deps/*/ebin -s libsniffle
+	erl -pa ebin deps/*/ebin -s dflow
 
 
 ##
@@ -55,7 +55,7 @@ console: all
 ##
 APPS = kernel stdlib sasl erts ssl tools os_mon runtime_tools crypto inets \
 	xmerl webtool snmp public_key mnesia eunit syntax_tools compiler
-COMBO_PLT = $(HOME)/.libsniffle_combo_dialyzer_plt
+COMBO_PLT = $(HOME)/.dflow_combo_dialyzer_plt
 
 
 check_plt: deps compile

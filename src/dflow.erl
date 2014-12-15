@@ -737,7 +737,7 @@ handle_callback_reply({done, Data, CState1},
                                      terminate_when_done = true}) ->
     emit(Parents, Data, QLen),
     done(Parents),
-    {stop, normal, State#state{callback_state = CState1, out = Out + 1}};
+    {stop, State#state{callback_state = CState1, out = Out + 1}};
 
 handle_callback_reply({done, CState1}, State = #state{parents = Parents}) ->
     done(Parents),

@@ -78,22 +78,10 @@ run_and_collect(Eq, N, Opts) ->
     ok = file:write_file("./current.dot", dflow:desc_to_graphvix(
                                             dflow:describe(Flow))),
     dflow:start(Flow, N),
-    {ok, Replies} = collect_replies(Ref, []),
+    {ok, Replies} = dflow_send:recv(Ref),
     dflow:terminate(Flow),
     [Result] = lists:usort(Replies),
     {Result, length(Replies)}.
-
-
-collect_replies(Ref, Acc) ->
-    receive
-        {emit, Ref, Data} ->
-            collect_replies(Ref, [Data | Acc]);
-        {done, Ref} ->
-            {ok, lists:reverse(Acc)}
-    after
-        5000 ->
-            {error, timeout}
-    end.
 
 calculate({dflow_debug, [_, C]}) ->
     calculate(C);

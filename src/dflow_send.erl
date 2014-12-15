@@ -11,13 +11,53 @@
 
 -behaviour(dflow).
 
--export([init/1, describe/1, start/2, emit/3, done/2]).
+-export([init/1, describe/1, start/2, emit/3, done/2, recv/2, recv/1]).
 
 -record(state, {
           pass = false :: boolean(),
           pid :: pid(),
           ref :: reference()
          }).
+
+%%--------------------------------------------------------------------
+%% @doc Same as {@link recv/2} with a default <em>Timeout</em> of 5000
+%%
+%% @spec recv(Ref :: reference()) ->
+%%   {ok, [term()]} |
+%%   {error, timeout}
+%%
+%% @end
+%%--------------------------------------------------------------------
+
+
+-spec recv(Ref :: reference()) ->
+                  {ok, [term()]} |
+                  {error, timeout}.
+recv(Ref) ->
+    recv(Ref, 5000, []).
+
+%%--------------------------------------------------------------------
+%% @doc Used to collect <b>all</b> the replies from a
+%% <em>dflow_send</em> step. The data is returned in the same order
+%% it is received.
+%%
+%% @spec recv(Ref :: reference(),
+%%            Timeout :: pos_integer() | infinity) ->
+%%   {ok, [term()]} |
+%%   {error, timeout}
+%%
+%% @end
+%%--------------------------------------------------------------------
+
+
+-spec recv(Ref :: reference(), Timeout :: pos_integer() | infinity) ->
+                  {ok, [term()]} |
+                  {error, timeout}.
+
+recv(Ref, Timeout) when is_integer(Timeout), Timeout > 0;
+                        Timeout =:= infinity ->
+    recv(Ref, Timeout, []).
+
 %%--------------------------------------------------------------------
 %% @doc Initializes the send step, the <em>Pass</em> argument is
 %% optional and defaults to false.
@@ -29,8 +69,8 @@
 %% act as a 'terminator' and not let any further messages to upstream.
 %%
 %% @spec init([Pid :: pid(),
-%%             Ref :: reference()]) ->
-%%             Pass :: boolean()]) ->
+%%             Ref :: reference(),
+%%             Pass :: boolean(),
 %%             Sub :: dflow:step()]) ->
 %%   {ok, State :: term(), SubFlow :: []}
 %%
@@ -73,8 +113,8 @@ start(_, State)->
 %% or we just send it and do not let it get furhter upstream.
 %%
 %% @spec emit(Child :: reference(), Data :: term(),
-%%            State :: integer()) ->
-%%   {ok, N :: integer()}
+%%            State :: term()) ->
+%%   {ok, State :: term()}
 %%
 %% @end
 %%--------------------------------------------------------------------
@@ -101,3 +141,22 @@ emit(_Child, Data, State = #state{pid = Pid, ref = Ref}) ->
 done(_Child, State = #state{pid = Pid, ref = Ref}) ->
     Pid ! {done, Ref},
     {done, State}.
+
+recv(Ref, infinity, Acc) ->
+    receive
+        {emit, Ref, Data} ->
+            recv(Ref, infinity, [Data | Acc]);
+        {done, Ref} ->
+            {ok, lists:reverse(Acc)}
+    end;
+
+recv(Ref, Timeout, Acc) ->
+    receive
+        {emit, Ref, Data} ->
+            recv(Ref, Timeout, [Data | Acc]);
+        {done, Ref} ->
+            {ok, lists:reverse(Acc)}
+    after
+        Timeout ->
+            {error, timeout}
+    end.
