@@ -98,6 +98,12 @@
 %%%-------------------------------------------------------------------
 -module(dflow).
 
+-ifdef(TEST).
+-ifdef(EQC).
+-include_lib("pulse_otp/include/pulse_otp.hrl").
+-endif.
+-endif.
+
 -behaviour(gen_server).
 
 %% API
@@ -457,6 +463,7 @@ start_link(Parent, Query, Queries, Opts) ->
 %% @end
 %%--------------------------------------------------------------------
 init([{PRef, Parent}, {Module, Args}, Queries, Opts]) ->
+    process_flag(trap_exit, true),
     {ok, CState, SubQs} = Module:init(Args),
     {Queries1, Children} =
         lists:foldl(
@@ -539,7 +546,10 @@ handle_call(graph, _, State = #state{children = Children,
                                      callback_module = Mod}) ->
 
     Children1 = [describe(Child) || {_, Child} <- Children ++ Completed],
-    Desc = [format_in(State), Mod:describe(CState), format_out(State)],
+    Desc = [format_in(State),
+            pid_to_list(self()), $\n,
+            Mod:describe(CState),
+            format_out(State)],
     {reply, {self(), Desc, Children1}, State};
 
 handle_call(terminate, _From, State = #state{}) ->
@@ -637,6 +647,8 @@ handle_info(_Info, State) ->
 %% @spec terminate(Reason, State) -> void()
 %% @end
 %%--------------------------------------------------------------------
+terminate(shutdown, _State) ->
+    ok;
 terminate(_Reason, _State) ->
     ok.
 

@@ -1,6 +1,13 @@
 -module(dflow_sup).
 
+-ifdef(TEST).
+-ifdef(EQC).
+-include_lib("pulse_otp/include/pulse_otp.hrl").
+-endif.
+-endif.
+
 -behaviour(supervisor).
+
 
 %% API
 -export([start_link/0]).
