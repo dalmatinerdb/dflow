@@ -74,7 +74,7 @@ prop_optimized() ->
 run_and_collect(Eq, N, Opts) ->
     application:start(dflow),
     Ref = make_ref(),
-    {ok, _, Flow} = dflow:build({df_to_msg, [self(), Ref, Eq]}, Opts),
+    {ok, _, Flow} = dflow:build({dflow_send, [self(), Ref, Eq]}, Opts),
     ok = file:write_file("./current.dot", dflow:desc_to_graphvix(
                                             dflow:describe(Flow))),
     dflow:start(Flow, N),

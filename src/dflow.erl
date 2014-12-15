@@ -18,7 +18,7 @@
 %%%
 %%%
 %%% The <em>dflow</em> behaviour requires the following callbacks,
-%%% please see {@link dflow_debug} for an example.
+%%% please see {@link dflow_debug} and {@link dflow_send} for examples.
 %%%
 %%% <pre>
 %%% init(Args :: [term()]) ->
