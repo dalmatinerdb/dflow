@@ -113,6 +113,7 @@
          start/2,
          describe/1,
          desc_to_graphvix/1,
+         write_dot/2,
          terminate/1
         ]).
 
@@ -391,9 +392,39 @@ describe(Head) ->
 -spec desc_to_graphvix(Description :: step_desc()) ->
                               DotData :: iodata().
 
+%%--------------------------------------------------------------------
+%% @doc Translates the output from {@link describe/1} to a graphviz
+%% dot file format.
+%%
+%% @spec desc_to_graphvix(Description :: step_desc()) ->
+%%   DotData :: iodata()
+%%
+%% @end
+%%--------------------------------------------------------------------
+
 desc_to_graphvix(Description) ->
     Edges = lists:usort(flatten(Description, [])),
     ["digraph {\n", [to_gviz(Edge) || Edge <- Edges], "}"].
+
+%%--------------------------------------------------------------------
+%% @doc A helpful wrapper that combines, {@link describe/1},
+%% {@link desc_to_graphvix/1} and {@link file:write_file/2} into one
+%% simple call.
+%%
+%% @spec write_dot(File :: file:name_all(), Flow :: pid()) ->
+%%                        ok |
+%%                        {error, posix() | badarg | terminated |
+%%                                system_limit}
+%%
+%% @end
+%%--------------------------------------------------------------------
+
+-spec write_dot(File :: file:name_all(), Flow :: pid()) ->
+                       ok |
+                       {error, file:posix() | badarg | terminated | system_limit}.
+
+write_dot(File, Flow) ->
+    file:write_file(File, dflow:desc_to_graphvix(dflow:describe(Flow))).
 
 %%--------------------------------------------------------------------
 %% @doc Sends a start signal to the Flow. The start signal is send
@@ -548,7 +579,7 @@ handle_call(graph, _, State = #state{children = Children,
     Children1 = [describe(Child) || {_, Child} <- Children ++ Completed],
     Desc = [format_in(State),
             pid_to_list(self()), $\n,
-            Mod:describe(CState),
+            Mod:describe(CState), format_done(State),
             format_out(State)],
     {reply, {self(), Desc, Children1}, State};
 
@@ -753,3 +784,9 @@ format_out(#state{out = 0}) ->
     "";
 format_out(#state{out = V}) ->
     ["\\n[", integer_to_list(V), "]\\nV"].
+
+format_done(#state{completed_children = Done, children = Waiting }) ->
+    NDone = length(Done),
+    NTotal = length(Waiting) + NDone,
+    ["(", integer_to_list(NDone), "/", integer_to_list(NTotal), ")"].
+
