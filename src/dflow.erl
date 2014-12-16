@@ -310,7 +310,8 @@
           in = 0 :: non_neg_integer(),
           out = 0 :: non_neg_integer(),
           terminate_when_done = false :: boolean(),
-          max_q_len = 20 :: pos_integer() | infinity
+          max_q_len = 20 :: pos_integer() | infinity,
+          done = false :: boolean()
          }).
 
 %%%===================================================================
@@ -760,7 +761,8 @@ handle_callback_reply({done, Data, CState1},
                                      terminate_when_done = false}) ->
     emit(Parents, Data, QLen),
     done(Parents),
-    {ok, State#state{callback_state = CState1, out = Out + 1}};
+    {ok, State#state{callback_state = CState1, out = Out + 1,
+                     done = true}};
 
 handle_callback_reply({done, Data, CState1},
                       State = #state{parents = Parents, out = Out,
@@ -768,11 +770,12 @@ handle_callback_reply({done, Data, CState1},
                                      terminate_when_done = true}) ->
     emit(Parents, Data, QLen),
     done(Parents),
-    {stop, State#state{callback_state = CState1, out = Out + 1}};
+    {stop, State#state{callback_state = CState1, out = Out + 1,
+                       done = true}};
 
 handle_callback_reply({done, CState1}, State = #state{parents = Parents}) ->
     done(Parents),
-    {ok, State#state{callback_state = CState1}}.
+    {ok, State#state{callback_state = CState1, done = true}}.
 
 format_in(#state{in = 0}) ->
     "";
@@ -785,8 +788,14 @@ format_out(#state{out = 0}) ->
 format_out(#state{out = V}) ->
     ["\\n[", integer_to_list(V), "]\\nV"].
 
+format_done(#state{completed_children = Done, children = Waiting,
+                   done = true }) ->
+    NDone = length(Done),
+    NTotal = length(Waiting) + NDone,
+    ["* (", integer_to_list(NDone), "/", integer_to_list(NTotal), ")"];
+
 format_done(#state{completed_children = Done, children = Waiting }) ->
     NDone = length(Done),
     NTotal = length(Waiting) + NDone,
-    ["(", integer_to_list(NDone), "/", integer_to_list(NTotal), ")"].
+    [" (", integer_to_list(NDone), "/", integer_to_list(NTotal), ")"].
 
