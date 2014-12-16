@@ -104,6 +104,8 @@
 -endif.
 -endif.
 
+-include("dflow.hrl").
+
 -behaviour(gen_server).
 
 %% API
@@ -112,8 +114,6 @@
          build/2,
          start/2,
          describe/1,
-         desc_to_graphvix/1,
-         write_dot/2,
          terminate/1
         ]).
 
@@ -213,31 +213,6 @@
                          {max_q_len, QLen :: pos_integer() | infinity}.
 
 %%--------------------------------------------------------------------
-%% @type step_desc() = {StepPid, Desc, Children}.
-%%   StepPid = pid(),
-%%   Desc = iodata(),
-%%   Children = [step_desc()}.
-%%
-%% This is used to describe the flow. The <em>StepPid</em> can be used
-%% as a unique identifyer for each step. Even when the <em>optimize</em>
-%% was passed as a argument during create time the descripion is build
-%% fully showing each link!
-%%
-%% Desc is a human readable string for each step, combined of the
-%% description given from the callback module and IO data gathered by
-%% DFlow itself.
-%%
-%% The main purpose of this data is to be passed
-%% to {@link desc_to_graphvix/1} however it can be used for other tasks
-%% as well.
-%%
-%% @end
-%%--------------------------------------------------------------------
-
--type step_desc() :: {StepPid :: pid(), Desc :: iodata(),
-                      Children :: [step_desc()]}.
-
-%%--------------------------------------------------------------------
 %% @type dflow_return() =
 %%         {ok, State} |
 %%         {emit, Data, State} |
@@ -314,6 +289,7 @@
           done = false :: boolean()
          }).
 
+
 %%%===================================================================
 %%% API
 %%%===================================================================
@@ -375,57 +351,11 @@ build(Head, Options) ->
 %%--------------------------------------------------------------------
 
 -spec describe(Head :: pid()) ->
-                      Desc :: step_desc().
+                      Desc :: dflow_graph:step_desc().
 
 describe(Head) ->
     gen_server:call(Head, graph, infinity).
 
-%%--------------------------------------------------------------------
-%% @doc Translates the output from {@link describe/1} to a graphviz
-%% dot file.
-%%
-%% @spec desc_to_graphvix(Description :: step_desc()) ->
-%%   DotData :: iodata()
-%%
-%% @end
-%%--------------------------------------------------------------------
-
--spec desc_to_graphvix(Description :: step_desc()) ->
-                              DotData :: iodata().
-
-%%--------------------------------------------------------------------
-%% @doc Translates the output from {@link describe/1} to a graphviz
-%% dot file format.
-%%
-%% @spec desc_to_graphvix(Description :: step_desc()) ->
-%%   DotData :: iodata()
-%%
-%% @end
-%%--------------------------------------------------------------------
-
-desc_to_graphvix(Description) ->
-    Edges = lists:usort(flatten(Description, [])),
-    ["digraph {\n", [to_gviz(Edge) || Edge <- Edges], "}"].
-
-%%--------------------------------------------------------------------
-%% @doc A helpful wrapper that combines, {@link describe/1},
-%% {@link desc_to_graphvix/1} and {@link file:write_file/2} into one
-%% simple call.
-%%
-%% @spec write_dot(File :: file:name_all(), Flow :: pid()) ->
-%%                        ok |
-%%                        {error, posix() | badarg | terminated |
-%%                                system_limit}
-%%
-%% @end
-%%--------------------------------------------------------------------
-
--spec write_dot(File :: file:name_all(), Flow :: pid()) ->
-                       ok |
-                       {error, file:posix() | badarg | terminated | system_limit}.
-
-write_dot(File, Flow) ->
-    file:write_file(File, dflow:desc_to_graphvix(dflow:describe(Flow))).
 
 %%--------------------------------------------------------------------
 %% @doc Sends a start signal to the Flow. The start signal is send
@@ -573,16 +503,18 @@ handle_call({emit, Ref, Data}, _From,
 
 handle_call(graph, _, State = #state{children = Children,
                                      completed_children = Completed,
-
                                      callback_state = CState,
                                      callback_module = Mod}) ->
-
     Children1 = [describe(Child) || {_, Child} <- Children ++ Completed],
-    Desc = [format_in(State),
-            pid_to_list(self()), $\n,
-            Mod:describe(CState), format_done(State),
-            format_out(State)],
-    {reply, {self(), Desc, Children1}, State};
+    Desc = #node{
+              pid = self(),
+              in = State#state.in,
+              out = State#state.out,
+              done = State#state.done,
+              desc = Mod:describe(CState),
+              children = Children1
+             },
+    {reply, Desc, State};
 
 handle_call(terminate, _From, State = #state{}) ->
     {stop, normal, State};
@@ -711,22 +643,6 @@ emit(Pid, Ref, Data, QLen) ->
             gen_server:cast(Pid, {emit, Ref, Data})
     end.
 
-to_gviz({label, From, Label}) ->
-    [pid_to_list(From), " [label=\"", Label, "\"];\n"];
-
-
-%% We swap to and frop because we want arrows pointing from the lower to the
-%% higher.
-to_gviz({edge, From, To}) ->
-    [pid_to_list(To), " -> ", pid_to_list(From), ";\n"].
-
-flatten({Pid, Desc, Children}, Acc) ->
-    Acc1 = [{label, Pid, Desc} | Acc],
-    lists:foldl(fun ({CPid, CMod, CChildren}, FAcc) ->
-                        FAcc1 = [{edge, Pid, CPid} | FAcc],
-                        flatten({CPid, CMod, CChildren}, FAcc1)
-                end, Acc1, Children).
-
 
 done(Parents) ->
     [gen_server:cast(Parent, {done, Ref}) ||
@@ -776,26 +692,3 @@ handle_callback_reply({done, Data, CState1},
 handle_callback_reply({done, CState1}, State = #state{parents = Parents}) ->
     done(Parents),
     {ok, State#state{callback_state = CState1, done = true}}.
-
-format_in(#state{in = 0}) ->
-    "";
-format_in(#state{in = V}) ->
-    ["[", integer_to_list(V), "]\\nV\\n"].
-
-
-format_out(#state{out = 0}) ->
-    "";
-format_out(#state{out = V}) ->
-    ["\\n[", integer_to_list(V), "]\\nV"].
-
-format_done(#state{completed_children = Done, children = Waiting,
-                   done = true }) ->
-    NDone = length(Done),
-    NTotal = length(Waiting) + NDone,
-    ["* (", integer_to_list(NDone), "/", integer_to_list(NTotal), ")"];
-
-format_done(#state{completed_children = Done, children = Waiting }) ->
-    NDone = length(Done),
-    NTotal = length(Waiting) + NDone,
-    [" (", integer_to_list(NDone), "/", integer_to_list(NTotal), ")"].
-

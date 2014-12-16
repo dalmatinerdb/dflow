@@ -75,10 +75,10 @@ run_and_collect(Eq, N, Opts) ->
     application:start(dflow),
     Ref = make_ref(),
     {ok, _, Flow} = dflow:build({dflow_send, [self(), Ref, Eq]}, Opts),
-    ok = file:write_file("./current.dot", dflow:desc_to_graphvix(
-                                            dflow:describe(Flow))),
+    ok = dflow_graph:write_dot("./current.dot", Flow),
     dflow:start(Flow, N),
     {ok, Replies} = dflow_send:recv(Ref),
+    ok = dflow_graph:write_dot("./current.dot", Flow),
     dflow:terminate(Flow),
     [Result] = lists:usort(Replies),
     {Result, length(Replies)}.
