@@ -1,7 +1,7 @@
 {application, dflow,
  [
-  {description, ""},
-  {vsn, "0.1.0"},
+  {description, "Pipelined flow processing engine"},
+  {vsn, "0.1.1"},
   {registered, []},
   {applications, [
                   kernel,
