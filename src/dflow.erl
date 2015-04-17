@@ -574,14 +574,14 @@ handle_cast({done, Ref}, State = #state{children = Children,
                                         callback_module = Mod}) ->
     {State1, CRef} = case Children of
                          [{Ref, _, _} = C] ->
-                             Completed1 = ordsets:del_element(C, Completed),
+                             Completed1 = ordsets:add_element(C, Completed),
                              {State#state{children = [],
                                           completed_children = Completed1},
                               {last, Ref}};
                          Children ->
                              C = lists:keyfind(Ref, 1, Children),
                              Children1 = lists:keydelete(Ref, 1, Children),
-                             Completed1 = ordsets:del_element(C, Completed),
+                             Completed1 = ordsets:add_element(C, Completed),
                              {State#state{children = Children1,
                                           completed_children = Completed1}, Ref}
                      end,
@@ -730,6 +730,12 @@ handle_callback_reply({done, Data, CState1},
     {stop, State#state{callback_state = CState1, out = Out + 1,
                        done = true}};
 
+handle_callback_reply({done, CState1},
+                      State = #state{parents = Parents,
+                                     terminate_when_done = false}) ->
+    done(Parents),
+    {ok, State#state{callback_state = CState1, done = true}};
+
 handle_callback_reply({done, CState1}, State = #state{parents = Parents}) ->
     done(Parents),
-    {ok, State#state{callback_state = CState1, done = true}}.
+    {stop, State#state{callback_state = CState1, done = true}}.
