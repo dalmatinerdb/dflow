@@ -3,6 +3,6 @@
           desc :: iodata(),
           in :: pos_integer(),
           out :: pos_integer(),
-          done :: boolean,
+          done :: boolean(),
           children :: [#node{}]
          }).

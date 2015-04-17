@@ -256,7 +256,8 @@
         step() |
         child_step().
 
--type step_ref() :: {reference(), pid()}.
+-type step_pref() :: {reference(), pid()}.
+-type step_cref() :: {reference(), reference(), pid()}.
 
 -callback init(Args :: [term()]) ->
     {ok, State :: term(), ChildSteps :: child_steps()}.
@@ -277,11 +278,11 @@
 -record(state, {
           callback_module :: atom(),
           callback_state :: term(),
-          parents = [] :: [step_ref()],
+          parents = [] :: [step_pref()],
           start_count = 0 :: non_neg_integer(),
           parent_count = 1 :: pos_integer(),
-          children = [] :: [step_ref()],
-          completed_children = [] :: [step_ref()],
+          children = [] :: [step_cref()],
+          completed_children = [] :: [step_cref()],
           in = 0 :: non_neg_integer(),
           out = 0 :: non_neg_integer(),
           terminate_when_done = false :: boolean(),
@@ -393,7 +394,7 @@ start(Head, Payload) ->
 %%--------------------------------------------------------------------
 
 -spec terminate(Head :: pid()) ->
-                   ok.
+                       ok.
 
 terminate(Head) ->
     supervisor:terminate_child(dflow_sup, Head).
@@ -438,22 +439,26 @@ init([{PRef, Parent}, {Module, Args}, Queries, Opts]) ->
                                   {ok, Pid} = start_link(PSelf, Query, QAcc, Opts),
                                   receive
                                       {queries, Ref, QAcc1} ->
+                                          MRef = monitor(process, Pid),
                                           QAcc2 = dict:store(Query, Pid, QAcc1),
-                                          {QAcc2, [{Ref, Pid} | CAcc]}
+                                          {QAcc2, [{Ref, MRef, Pid} | CAcc]}
                                   after
                                       1000 ->
                                           error(timeout)
                                   end;
                               {ok, Pid} ->
+                                  link(Pid),
+                                  MRef = monitor(process, Pid),
                                   add_parent(Pid, Ref),
-                                  {QAcc, [{Ref, Pid} | CAcc]}
+                                  {QAcc, [{Ref, MRef, Pid} | CAcc]}
                           end;
                       false ->
                           PSelf = {Ref, self()},
                           {ok, Pid} = start_link(PSelf, Query, QAcc, Opts),
                           receive
                               {queries, Ref, _} ->
-                                  {QAcc, [{Ref, Pid} | CAcc]}
+                                  MRef = monitor(process, Pid),
+                                  {QAcc, [{Ref, MRef, Pid} | CAcc]}
                           after
                               1000 ->
                                   error(timeout)
@@ -505,7 +510,7 @@ handle_call(graph, _, State = #state{children = Children,
                                      completed_children = Completed,
                                      callback_state = CState,
                                      callback_module = Mod}) ->
-    Children1 = [describe(Child) || {_, Child} <- Children ++ Completed],
+    Children1 = [describe(Child) || {_, _, Child} <- Children ++ Completed],
     Desc = #node{
               pid = self(),
               in = State#state.in,
@@ -540,7 +545,7 @@ handle_cast({start, Payload},
                            start_count = SCount,
                            parent_count = PCount}) when PCount =:= SCount + 1 ->
     CallbackReply = Mod:start(Payload, CState),
-    [start(Pid, Payload) || {_, Pid} <- Children],
+    [start(Pid, Payload) || {_, _, Pid} <- Children],
     case handle_callback_reply(CallbackReply, State) of
         {stop, State1} ->
             {stop, normal, State1};
@@ -568,16 +573,17 @@ handle_cast({done, Ref}, State = #state{children = Children,
                                         callback_state = CState,
                                         callback_module = Mod}) ->
     {State1, CRef} = case Children of
-                         [{Ref, _} = C] ->
+                         [{Ref, _, _} = C] ->
+                             Completed1 = ordsets:del_element(C, Completed),
                              {State#state{children = [],
-                                          completed_children = [C|Completed]},
+                                          completed_children = Completed1},
                               {last, Ref}};
                          Children ->
                              C = lists:keyfind(Ref, 1, Children),
                              Children1 = lists:keydelete(Ref, 1, Children),
+                             Completed1 = ordsets:del_element(C, Completed),
                              {State#state{children = Children1,
-                                          completed_children = [C|Completed]},
-                              Ref}
+                                          completed_children = Completed1}, Ref}
                      end,
     CallbackReply = Mod:done(CRef, CState),
     case handle_callback_reply(CallbackReply, State1) of
@@ -597,6 +603,41 @@ handle_cast({done, Ref}, State = #state{children = Children,
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
+handle_info({'DOWN', MRef, _Type, _Object, _Info},
+            State = #state{children = Children,
+                           completed_children = Completed,
+                           callback_state = CState,
+                           callback_module = Mod}) ->
+    {State1, CRef} = case Children of
+                         [{Ref, MRef, _} = C] ->
+                             Completed1 = ordsets:del_element(C, Completed),
+                             {State#state{children = [],
+                                          completed_children = Completed1},
+                              {last, Ref}};
+                         Children ->
+                             case lists:keyfind(MRef, 2, Children) of
+                                 {Ref, _, _} = C ->
+                                     Children1 = lists:keydelete(MRef, 2, Children),
+                                     Completed1 = ordsets:del_element(C, Completed),
+                                     {State#state{children = Children1,
+                                                  completed_children = Completed1}, Ref};
+                                 _ ->
+                                     {State, undefined}
+                             end
+                     end,
+    case CRef of
+        undefined ->
+            {noreply, State1};
+        _ ->
+            CallbackReply = Mod:done(CRef, CState),
+            case handle_callback_reply(CallbackReply, State1) of
+                {stop, State2} ->
+                    {stop, normal, State2};
+                {ok, State2} ->
+                    {noreply, State2}
+            end
+    end;
+
 handle_info(_Info, State) ->
     {noreply, State}.
 
