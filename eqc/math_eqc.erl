@@ -7,18 +7,13 @@
 
 -module(math_eqc).
 
--ifdef(TEST).
--ifdef(EQC).
-
--include_lib("fqc/include/fqc.hrl").
+-include_lib("eqc/include/eqc.hrl").
 -include_lib("pulse/include/pulse.hrl").
 -include_lib("pulse_otp/include/pulse_otp.hrl").
 
 -compile(export_all).
 
 -define(TREE_DEPTH, 7).
-
-
 
 %% We don't use divide since handeling the division by zery would be
 %% too much pain!
@@ -109,6 +104,3 @@ prettify({df_arith, [L, '-', R]}) ->
 
 prettify({df_arith, [L, '*', R]}) ->
     [$(, prettify(L),  " * ", prettify(R), $)].
-
--endif.
--endif.

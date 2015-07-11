@@ -4,3 +4,5 @@ ebin
 edoc
 deps
 doc
+_build
+current.dot
