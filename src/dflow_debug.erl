@@ -65,7 +65,7 @@ describe(_) ->
 
 start(Payload, State) ->
     io:format("[~p:0] Started debugger with: ~p.~n", [self(), Payload]),
-    {ok, State#state{ start = now()}}.
+    {ok, State#state{ start = erlang:system_time(micro_seconds)}}.
 
 %%--------------------------------------------------------------------
 %% @doc When our child emits data to us we pass it through. If
@@ -83,12 +83,12 @@ start(Payload, State) ->
 %%--------------------------------------------------------------------
 
 emit(_Child, Data, State = #state{show_data = true, start = Start}) ->
-    Diff  = round(timer:now_diff(now(), Start) / 1000),
+    Diff  = Start - erlang:system_time(micro_seconds),
     io:format("[~p:~p] ~p~n", [self(), Diff, Data]),
     {emit, Data, State};
 
 emit(_Child, Data, State = #state{start = Start}) ->
-    Diff  = round(timer:now_diff(now(), Start) / 1000),
+    Diff  = Start - erlang:system_time(micro_seconds),
     io:format("[~p:~p] data.~n", [self(), Diff]),
     {emit, Data, State}.
 
@@ -108,6 +108,6 @@ emit(_Child, Data, State = #state{start = Start}) ->
 %%--------------------------------------------------------------------
 
 done({last, _Child}, State = #state{start = Start}) ->
-    Diff  = round(timer:now_diff(now(), Start) / 1000),
+    Diff  = Start - erlang:system_time(micro_seconds),
     io:format("[~p:~p] Finished.~n", [self(), Diff]),
     {done, State}.
