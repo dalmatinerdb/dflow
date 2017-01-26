@@ -5,12 +5,12 @@
 %%%   This is a flow processing library which aims to make it easy to
 %%%   write streamed routines for processing data.
 %%%
-%%%   Each step in the process is handled as a own server allowing them
-%%%   to work indipendantly and take advantage of multi core sytems.
+%%%   Each step in the process is an independent server allowing the step to
+%%%   take advantage of multi-core sytems.
 %%%
-%%%   Most opperations are handled in a asyncronous fashion to prevent
-%%%   a slower process from blocking it's children, however to prevent
-%%%   unbounded message queue growth the emit changes to syncornous
+%%%   Most operations are handled in an asynchronous fashion to prevent
+%%%   a slower process from blocking its children. To prevent
+%%%   unbounded message queue growth the emit may change to synchronous
 %%%   mode guaranteeing a maximal queue length of
 %%%   (max_q_len) + (num_children).
 %%%
@@ -28,9 +28,8 @@
 %%% Called as part of {@link build/2}, must return a initial state
 %%% as well as its {@link child_steps()}.
 %%%
-%%% To simplify matters the child reference can be obmitted or if
-%%% only a single item is the child only this item can be returned
-%%% without wrapping it in a list.
+%%% To simplify matters the child reference can be omitted; or, if the child
+%%% has no siblings this item can be returned without wrapping it in a list.
 %%%
 %%% When references are provided for child steps the <em>emit</em>
 %%% and <em>done</em> events will carry those refs even when a child
@@ -56,10 +55,10 @@
 %%% are triggered when <b>all</b> the parent processses linking
 %%% to them are started.
 %%%
-%%% This is done to guarantee no child is started untill all the
-%%% parents it will emit data to are ready.
+%%% This is done to guarantee that no child is started until all of its
+%%% parents are ready. This is because a child will emit to its parents.
 %%%
-%%% However order between different children is not guaranteed!
+%%% However, order between different children is not guaranteed!
 %%%
 %%% <pre>
 %%% emit(Child :: reference(), Data :: term(), State :: term()) ->
@@ -70,8 +69,8 @@
 %%% is passed.
 %%%
 %%% Erlang guarantees ordered delivery between two processes, so
-%%% emits from a single child will arrive in the order they are generatd
-%%% however the order amongst children is not guaranteed.
+%%% emits from a single child will arrive in the order they are generated -
+%%% however, the order amongst children is not guaranteed.
 %%%
 %%% The <em>Child</em> reference can be used to identify the child.
 %%%
@@ -80,12 +79,12 @@
 %%%    {@link dflow_return()}.
 %%% </pre>
 %%%
-%%% This is called when a child process singals that it's work is done.
+%%% This is called when a child process signals that its work is done.
 %%%
 %%% The <em>Child</em> reference can be used to identify the child.
 %%%
 %%% The DFlow keeps track of the children that are done with their work
-%%% and the last <em>done</em> message will have a touple as child in
+%%% and the last <em>done</em> message will have a tuple as child in
 %%% the form <em>{last, Child :: reference()}</em>. This will signal that
 %%% all children now have finished and there will be no more downstream
 %%% work.
@@ -142,8 +141,8 @@
 %%       call to <em>Module</em></li>
 %% </ul>
 %%
-%% Every flow is represented as a step, this steps are then used
-%% by eflow to generate a graph of processes with each process
+%% Every flow is represented as a step, these steps are then used
+%% by dflow to generate a graph of processes with each process
 %% representing one step.
 %%
 %%
@@ -167,16 +166,16 @@
 %%       will try to optimize the call graph.</li>
 %%   <li><em>terminate_when_done</em> - Will terminate the process after
 %%       it signals being done.</li>
-%%   <li><em>max_q_len</em> - This decide determine at what point a
-%%       step switches from asyncronously passing messages to it's
-%%       pareent to syncronously. If set to <em>infinity</em> the
-%%       risk exists that the parents message box grows unbounded.<br/>
-%%       When set the parents message box will not grow lager then
+%%   <li><em>max_q_len</em> - determines when a step switches from
+%%       asynchronous to synchronous message passing (to its parent).
+%%       If set to <em>infinity</em> the risk exists that the parent's message
+%%       box grows unbounded.<br/>
+%%       When set, the parent's message box will not grow larger than
 %%       <em>num_children</em> + <em>max_q_len</em>.</li>
 %% </ul>
 %%
 %% The algorithm is pretty basic. When the tree contains two equal branches,
-%% instead of spawing pme processes for each it will just link the top most
+%% instead of spawing distinct processes for each it will just link the top most
 %% common process to all parents consuming fro it.
 %%
 %% A simple example where we have two flow steps:
@@ -202,8 +201,8 @@
 %% The <em>+</em> process will still receive two numbers however instead
 %% of generating them twice they are only generated once.
 %%
-%% Two branches are considered euqal when both the module and all it's
-%% arguments are equal.
+%% Equality for a branch is defined both the module and all its arguments
+%% are equal, ie. MFAs are equal.
 %%
 %% @end
 %%--------------------------------------------------------------------
@@ -287,7 +286,8 @@
           out = 0 :: non_neg_integer(),
           terminate_when_done = false :: boolean(),
           max_q_len = 20 :: pos_integer() | infinity,
-          done = false :: boolean()
+          done = false :: boolean(),
+          timing = #timing_info{}
          }).
 
 
@@ -341,7 +341,7 @@ build(Head, Options) ->
 
 %%--------------------------------------------------------------------
 %% @doc Traverses the process tree to give a representation of it's
-%% layout including IO counters and other information provided by
+%% layout including IO counters, timing and other information provided by
 %% each process.
 %%
 %%
@@ -427,6 +427,7 @@ start_link(Parent, Query, Queries, Opts) ->
 %%--------------------------------------------------------------------
 init([{PRef, Parent}, {Module, Args}, Queries, Opts]) ->
     process_flag(trap_exit, true),
+    Start = erlang:system_time(micro_seconds),
     {ok, CState, SubQs} = Module:init(Args),
     {Queries1, Children} =
         lists:foldl(
@@ -473,7 +474,8 @@ init([{PRef, Parent}, {Module, Args}, Queries, Opts]) ->
             max_q_len = QLen,
             terminate_when_done = proplists:get_bool(terminate_when_done, Opts),
             parents = [{PRef, Parent}],
-            children = Children
+            children = Children,
+            timing = #timing_info{start = Start}
            }}.
 
 %%--------------------------------------------------------------------
@@ -517,6 +519,7 @@ handle_call(graph, _, State = #state{children = Children,
               out = State#state.out,
               done = State#state.done,
               desc = Mod:describe(CState),
+              timing = State#state.timing,
               children = Children1
              },
     {reply, Desc, State};
@@ -715,27 +718,39 @@ handle_callback_reply({emit, Data, CState1},
 handle_callback_reply({done, Data, CState1},
                       State = #state{parents = Parents, out = Out,
                                      max_q_len = QLen,
-                                     terminate_when_done = false}) ->
+                                     terminate_when_done = false,
+                                     timing = T}) ->
     emit(Parents, Data, QLen),
     done(Parents),
+    Stop = erlang:system_time(micro_seconds),
     {ok, State#state{callback_state = CState1, out = Out + 1,
+                     timing = T#timing_info{ stop = Stop },
                      done = true}};
 
 handle_callback_reply({done, Data, CState1},
                       State = #state{parents = Parents, out = Out,
                                      max_q_len = QLen,
-                                     terminate_when_done = true}) ->
+                                     terminate_when_done = true,
+                                     timing = T}) ->
     emit(Parents, Data, QLen),
     done(Parents),
+    Stop = erlang:system_time(micro_seconds),
     {stop, State#state{callback_state = CState1, out = Out + 1,
+                       timing = T#timing_info{ stop = Stop },
                        done = true}};
 
 handle_callback_reply({done, CState1},
                       State = #state{parents = Parents,
-                                     terminate_when_done = false}) ->
+                                     terminate_when_done = false,
+                                     timing = T}) ->
     done(Parents),
-    {ok, State#state{callback_state = CState1, done = true}};
+    Stop = erlang:system_time(micro_seconds),
+    {ok, State#state{callback_state = CState1, done = true,
+                     timing = T#timing_info{stop = Stop}}};
 
-handle_callback_reply({done, CState1}, State = #state{parents = Parents}) ->
+handle_callback_reply({done, CState1}, State = #state{parents = Parents,
+                                                      timing = T}) ->
     done(Parents),
-    {stop, State#state{callback_state = CState1, done = true}}.
+    Stop = erlang:system_time(micro_seconds),
+    {stop, State#state{callback_state = CState1, done = true,
+                       timing = T#timing_info{stop = Stop}}}.

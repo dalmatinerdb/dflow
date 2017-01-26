@@ -6,7 +6,6 @@
 
 -export_type([step_desc/0]).
 
-
 %%--------------------------------------------------------------------
 %% @type step_desc() = {StepPid, Desc, Children}.
 %%   StepPid = pid(),
@@ -71,11 +70,18 @@ desc_to_graphviz(Description) ->
 
 to_gviz({label, Node}) ->
     [pid_to_list(Node#node.pid), " [label=\"", label(Node), "\"] ",
-     "[color=", color(Node), "];"];
+     "[color=", color(Node), "];\n"];
 
 
-%% We swap to and frop because we want arrows pointing from the lower to the
+%% We swap to and from because we want arrows pointing from the lower to the
 %% higher.
+to_gviz({edge, Parent,
+         Child = #node{timing = #timing_info{start = S0, stop = S1}} })
+  when S0 =/= undefined andalso S1 =/= undefined ->
+    Time =  float_to_list((S1 - S0) / 1000, [{decimals, 4}, compact]),
+    [pid_to_list(Child#node.pid), " -> ", pid_to_list(Parent#node.pid),
+     " [label=\"", integer_to_list(Child#node.out), " (", Time, "ms) ", "\"] ",
+     " [color=", color(Child), "];"];
 to_gviz({edge, Parent, Child}) ->
     [pid_to_list(Child#node.pid), " -> ", pid_to_list(Parent#node.pid),
      " [label=\"", integer_to_list(Child#node.out), "\"] ",
@@ -89,7 +95,7 @@ flatten(Parent = #node{children = Children}, Acc) ->
                 end, Acc1, Children).
 
 label(#node{desc = Desc, pid = Pid}) ->
-    [pid_to_list(Pid), $\n, Desc].
+    [pid_to_list(Pid), Desc].
 
 %[forat_in(State),
 % pid_to_list(self()), $\n, 
