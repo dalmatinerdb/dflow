@@ -78,7 +78,7 @@ to_gviz({label, Node}) ->
 to_gviz({edge, Parent,
          Child = #node{timing = #timing_info{start = S0, stop = S1}} })
   when S0 =/= undefined andalso S1 =/= undefined ->
-    Time =  float_to_list((S1 - S0) / 1000, [{decimals,4}, compact]),
+    Time =  float_to_list((S1 - S0) / 1000, [{decimals, 4}, compact]),
     [pid_to_list(Child#node.pid), " -> ", pid_to_list(Parent#node.pid),
      " [label=\"", integer_to_list(Child#node.out), " (", Time, "ms) ", "\"] ",
      " [color=", color(Child), "];"];
