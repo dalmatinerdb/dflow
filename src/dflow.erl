@@ -291,7 +291,8 @@
           max_q_len = 20 :: pos_integer() | infinity,
           done = false :: boolean(),
           timing = #timing_info{},
-          trace_id = undefined :: undefined | integer()
+          trace_id = undefined :: undefined | integer(),
+          trace = undefined
          }).
 
 
@@ -433,9 +434,7 @@ init([{PRef, Parent}, {Module, Args}, Queries, Opts]) ->
     process_flag(trap_exit, true),
     Start = erlang:system_time(micro_seconds),
     TraceID = proplists:get_value(trace_id, Opts, undefined),
-    dflow_span:start(Module, TraceID),
-    dflow_span:tag(service, dflow),
-    dflow_span:tag(module, Module),
+    dflow_span:start(dflow, TraceID),
     dflow_span:log("init"),
     {ok, CState, SubQs} = Module:init(Args),
     {Queries1, Children} =
@@ -505,24 +504,29 @@ init([{PRef, Parent}, {Module, Args}, Queries, Opts]) ->
 %%--------------------------------------------------------------------
 handle_call({add_parent, Parent}, _From,
             State = #state{parents = Parents, parent_count = Count}) ->
+    dflow_span:log("add parent"),
     {reply, ok, State#state{parents = [Parent | Parents],
                             parent_count = Count + 1}};
 
 handle_call({emit, Ref, Data}, _From,
             State = #state{callback_state = CState,
-                           callback_module = Mod}) ->
+                           callback_module = Mod,
+                           trace = S}) ->
+    S1 = dflow_span:flog(S, "emit start"),
     CallbackReply = Mod:emit(Ref, Data, CState),
+    S2 = dflow_span:flog(S1, "emit done"),
     case handle_callback_reply(CallbackReply, State) of
         {stop, State1} ->
-            {stop, normal, State1};
+            {stop, normal, State1#state{trace = S2}};
         {ok, State1} ->
-            {reply, ok, State1}
+            {reply, ok, State1#state{trace = S2}}
     end;
 
 handle_call(graph, _, State = #state{children = Children,
                                      completed_children = Completed,
                                      callback_state = CState,
                                      callback_module = Mod}) ->
+    dflow_span:log("graph"),
     Children1 = [describe(Child) || {_, _, Child} <- Children ++ Completed],
     Desc = #node{
               pid = self(),
@@ -557,14 +561,18 @@ handle_cast({start, Payload},
                            children = Children,
                            callback_module = Mod,
                            start_count = SCount,
-                           parent_count = PCount}) when PCount =:= SCount + 1 ->
+                           trace_id = TraceID,
+                           parent_count = PCount})
+  when PCount =:= SCount + 1 ->
+    S = otter:span_start(Mod, TraceID),
+    S2 = dflow_span:flog(S, "trigger start"),
     CallbackReply = Mod:start(Payload, CState),
     [start(Pid, Payload) || {_, _, Pid} <- Children],
     case handle_callback_reply(CallbackReply, State) of
         {stop, State1} ->
-            {stop, normal, State1};
+            {stop, normal, State1#state{trace = S2}};
         {ok, State1} ->
-            {noreply, State1}
+            {noreply, State1#state{trace = S2}}
     end;
 
 handle_cast({start, _Payload}, State = #state{start_count = Count}) ->
@@ -573,9 +581,13 @@ handle_cast({start, _Payload}, State = #state{start_count = Count}) ->
 
 handle_cast({emit, Ref, Data},
             State = #state{callback_state = CState,
+                           trace = S,
                            callback_module = Mod, in = In}) ->
+    S1 = dflow_span:flog(S, "emit start"),
     CallbackReply = Mod:emit(Ref, Data, CState),
-    case handle_callback_reply(CallbackReply, State#state{in = In + 1}) of
+    S2 = dflow_span:flog(S1, "emit done"),
+    case handle_callback_reply(CallbackReply,
+                               State#state{in = In + 1, trace = S2}) of
         {stop, State1} ->
             {stop, normal, State1};
         {ok, State1} ->
@@ -585,26 +597,40 @@ handle_cast({emit, Ref, Data},
 handle_cast({done, Ref}, State = #state{children = Children,
                                         completed_children = Completed,
                                         callback_state = CState,
+                                        trace = S,
                                         callback_module = Mod}) ->
-    {State1, CRef} = case Children of
-                         [{Ref, _, _} = C] ->
+    {State1, CRef} =
+        case Children of
+            [{Ref, _, _} = C] ->
+                S1 = dflow_span:flog(S, "last child done"),
+                Completed1 = ordsets:add_element(C, Completed),
+                {State#state{children = [],
+                             trace = S1,
+                             completed_children = Completed1},
+                 {last, Ref}};
+            Children ->
+                S1 = dflow_span:flog(S, "child done"),
+                C = lists:keyfind(Ref, 1, Children),
+                Children1 = lists:keydelete(Ref, 1, Children),
                              Completed1 = ordsets:add_element(C, Completed),
-                             {State#state{children = [],
-                                          completed_children = Completed1},
-                              {last, Ref}};
-                         Children ->
-                             C = lists:keyfind(Ref, 1, Children),
-                             Children1 = lists:keydelete(Ref, 1, Children),
-                             Completed1 = ordsets:add_element(C, Completed),
-                             {State#state{children = Children1,
-                                          completed_children = Completed1}, Ref}
-                     end,
+                {State#state{children = Children1,
+                             trace = S1,
+                             completed_children = Completed1},
+                 Ref}
+        end,
     CallbackReply = Mod:done(CRef, CState),
-    case handle_callback_reply(CallbackReply, State1) of
-        {stop, State2} ->
-            {stop, normal, State2};
-        {ok, State2} ->
-            {noreply, State2}
+    State2 = case CRef of
+                 {last, _} ->
+                     otter:span_end(State1#state.trace),
+                     State1#state{trace = undefined};
+                 _ ->
+                     State1
+             end,
+    case handle_callback_reply(CallbackReply, State2) of
+        {stop, State3} ->
+            {stop, normal, State3};
+        {ok, State3} ->
+            {noreply, State3}
     end.
 
 %%--------------------------------------------------------------------
@@ -621,30 +647,39 @@ handle_info({'DOWN', MRef, _Type, _Object, _Info},
             State = #state{children = Children,
                            completed_children = Completed,
                            callback_state = CState,
-                           callback_module = Mod}) ->
-    {State1, CRef} = case Children of
-                         [{Ref, MRef, _} = C] ->
-                             Completed1 = ordsets:del_element(C, Completed),
-                             {State#state{children = [],
-                                          completed_children = Completed1},
-                              {last, Ref}};
-                         Children ->
-                             case lists:keyfind(MRef, 2, Children) of
-                                 {Ref, _, _} = C ->
-                                     Children1 = lists:keydelete(MRef, 2, Children),
-                                     Completed1 = ordsets:del_element(C, Completed),
-                                     {State#state{children = Children1,
-                                                  completed_children = Completed1}, Ref};
-                                 _ ->
-                                     {State, undefined}
-                             end
-                     end,
+                           callback_module = Mod,
+                           trace = S}) ->
+    {State1, CRef} =
+        case Children of
+            [{Ref, MRef, _} = C] ->
+                S1 = dflow_span:flog(S, "last child terminated"),
+                Completed1 = ordsets:del_element(C, Completed),
+                {State#state{children = [],
+                             trace = S1,
+                             completed_children = Completed1},
+                 {last, Ref}};
+            Children ->
+                case lists:keyfind(MRef, 2, Children) of
+                    {Ref, _, _} = C ->
+                        S1 = dflow_span:flog(S, "child terminated"),
+                        Children1 = lists:keydelete(MRef, 2, Children),
+                        Completed1 = ordsets:del_element(C, Completed),
+                        {State#state{children = Children1,
+                                     trace = S1,
+                                     completed_children = Completed1}, Ref};
+                    _ ->
+                        {State, undefined}
+                end
+        end,
     case CRef of
         undefined ->
             {noreply, State1};
         _ ->
+            S2 = dflow_span:flog(State1#state.trace, "trigger done"),
             CallbackReply = Mod:done(CRef, CState),
-            case handle_callback_reply(CallbackReply, State1) of
+            dflow_span:stop(),
+            case handle_callback_reply(CallbackReply,
+                                       State1#state{trace = S2}) of
                 {stop, State2} ->
                     {stop, normal, State2};
                 {ok, State2} ->

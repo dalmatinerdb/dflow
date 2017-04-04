@@ -1,6 +1,6 @@
 -record(timing_info, {
           start :: integer(),
-          stop :: integer() }).
+          stop :: integer() | undefined}).
 
 -record(node, {
           pid :: pid(),
@@ -11,4 +11,3 @@
           timing :: #timing_info{},
           children :: [#node{}]
          }).
-
