@@ -35,47 +35,67 @@ equasion(Size) ->
                    {df_arith, [L, op(), R]}) || Size > 0])).
 
 
+setup() ->
+    {ok, _} = application:ensure_all_started(dflow),
+    otter_config:write(zipkin_collector_uri, "http://127.0.0.1:9411/api/v1/spans"),
+    otter_config:write(filter_rules, [{[], [send_to_zipkin]}]),
+    fun () ->
+            ok
+    end.
+
 prop_matches() ->
-    ?FORALL(
-       Size, choose(1, ?TREE_DEPTH),
-       ?FORALL(
-          {Eq, N}, {resize(Size, equasion()), runs()},
-          begin
-              Calculated = calculate(Eq),
-              ?PULSE(
-                 Result, run_and_collect(Eq, N, []),
-                 ?WHENFAIL(
-                    io:format(user, "Eq: ~s~n~p =/= ~p~n",
-                              [prettify(Eq), Calculated, Result]),
-                    {Calculated, N} =:= Result))
-          end)).
+    ?SETUP(fun setup/0,
+           ?FORALL(
+              Size, choose(1, ?TREE_DEPTH),
+              ?FORALL(
+                 {Eq, N}, {resize(Size, equasion()), runs()},
+                 begin
+                     Calculated = calculate(Eq),
+                     ?PULSE(
+                        Result, run_and_collect(Eq, N, []),
+                        ?WHENFAIL(
+                           io:format(user, "Eq: ~s~n~p =/= ~p~n",
+                                     [prettify(Eq), Calculated, Result]),
+                           {Calculated, N} =:= Result))
+                 end))).
 
 
 prop_optimized() ->
-    ?FORALL(
-       Size, choose(1, ?TREE_DEPTH),
-       ?FORALL(
-          {Eq, N}, {resize(Size, equasion()), runs()},
-          begin
-              Calculated = calculate(Eq),
-              ?PULSE(
-                 Result, run_and_collect(Eq, N, [optimize]),
-                 ?WHENFAIL(
-                    io:format(user, "Eq: ~s~n~p =/= ~p~n",
-                              [prettify(Eq), Calculated, Result]),
-                    {Calculated, N} =:= Result))
-          end)).
+    ?SETUP(fun setup/0,
+           ?FORALL(
+              Size, choose(1, ?TREE_DEPTH),
+              ?FORALL(
+                 {Eq, N}, {resize(Size, equasion()), runs()},
+                 begin
+                     Calculated = calculate(Eq),
+                     ?PULSE(
+                        Result, run_and_collect(Eq, N, [optimize]),
+                        ?WHENFAIL(
+                           io:format(user, "Eq: ~s~n~p =/= ~p~n",
+                                     [prettify(Eq), Calculated, Result]),
+                           {Calculated, N} =:= Result))
+                 end))).
 
 run_and_collect(Eq, N, Opts) ->
-    application:start(dflow),
+    TID = otter_lib:id(),
+    Sp0 = otter:span_start(eqc, TID),
+    Sp1 = otter:span_tag(Sp0, service, qec, "eqc"),
+    Opts1 = [{trace_id, TID} | Opts],
     Ref = make_ref(),
-    {ok, _, Flow} = dflow:build({dflow_send, [self(), Ref, Eq]}, Opts),
+    {ok, _, Flow} = dflow:build({dflow_send, [self(), Ref, Eq]}, Opts1),
+    Sp2 = otter:span_log(Sp1, "build", "eqc"),
     ok = dflow_graph:write_dot("./current.dot", Flow),
+    Sp3 = otter:span_log(Sp2, "write dot", "eqc"),
     dflow:start(Flow, N),
+    Sp4 = otter:span_log(Sp3, "start", "eqc"),
     {ok, Replies} = dflow_send:recv(Ref),
+    Sp5 = otter:span_log(Sp4, "recv", "eqc"),
     ok = dflow_graph:write_dot("./current.dot", Flow),
+    Sp6 = otter:span_log(Sp5, "write new dot", "eqc"),
     dflow:terminate(Flow),
+    Sp7 = otter:span_log(Sp6, "terminate", "eqc"),
     [Result] = lists:usort(Replies),
+    otter:span_end(Sp7),
     {Result, length(Replies)}.
 
 calculate({dflow_debug, [_, C]}) ->

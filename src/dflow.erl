@@ -172,6 +172,8 @@
 %%       box grows unbounded.<br/>
 %%       When set, the parent's message box will not grow larger than
 %%       <em>num_children</em> + <em>max_q_len</em>.</li>
+%%   <li><em>trace_id</em> when passed and not <em>undefined</em> used to
+%%       idenitfy the dflow as part of a open tracing trace</li>
 %% </ul>
 %%
 %% The algorithm is pretty basic. When the tree contains two equal branches,
@@ -209,6 +211,7 @@
 
 -type flow_optsions() :: optimize |
                          terminate_when_done |
+                         {trace_id, undefined | integer()} |
                          {max_q_len, QLen :: pos_integer() | infinity}.
 
 %%--------------------------------------------------------------------
@@ -287,7 +290,8 @@
           terminate_when_done = false :: boolean(),
           max_q_len = 20 :: pos_integer() | infinity,
           done = false :: boolean(),
-          timing = #timing_info{}
+          timing = #timing_info{},
+          trace_id = undefined :: undefined | integer()
          }).
 
 
@@ -428,6 +432,11 @@ start_link(Parent, Query, Queries, Opts) ->
 init([{PRef, Parent}, {Module, Args}, Queries, Opts]) ->
     process_flag(trap_exit, true),
     Start = erlang:system_time(micro_seconds),
+    TraceID = proplists:get_value(trace_id, Opts, undefined),
+    dflow_span:start(Module, TraceID),
+    dflow_span:tag(service, dflow),
+    dflow_span:tag(module, Module),
+    dflow_span:log("init"),
     {ok, CState, SubQs} = Module:init(Args),
     {Queries1, Children} =
         lists:foldl(
@@ -466,6 +475,7 @@ init([{PRef, Parent}, {Module, Args}, Queries, Opts]) ->
                           end
                   end
           end, {Queries, []}, ensure_refed(SubQs, [])),
+    dflow_span:log("init done"),
     Parent ! {queries, PRef, Queries1},
     QLen = proplists:get_value(max_q_len, Opts, ?MAX_Q_LEN),
     {ok, #state{
@@ -475,7 +485,8 @@ init([{PRef, Parent}, {Module, Args}, Queries, Opts]) ->
             terminate_when_done = proplists:get_bool(terminate_when_done, Opts),
             parents = [{PRef, Parent}],
             children = Children,
-            timing = #timing_info{start = Start}
+            timing = #timing_info{start = Start},
+            trace_id = TraceID
            }}.
 
 %%--------------------------------------------------------------------
@@ -655,9 +666,8 @@ handle_info(_Info, State) ->
 %% @spec terminate(Reason, State) -> void()
 %% @end
 %%--------------------------------------------------------------------
-terminate(shutdown, _State) ->
-    ok;
 terminate(_Reason, _State) ->
+    dflow_span:stop(),
     ok.
 
 %%--------------------------------------------------------------------
@@ -686,7 +696,6 @@ emit(Pid, Ref, Data, QLen) ->
         _ ->
             gen_server:cast(Pid, {emit, Ref, Data})
     end.
-
 
 done(Parents) ->
     [gen_server:cast(Parent, {done, Ref}) ||
