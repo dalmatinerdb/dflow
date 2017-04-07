@@ -78,24 +78,24 @@ prop_optimized() ->
 
 run_and_collect(Eq, N, Opts) ->
     TID = otter_lib:id(),
-    Sp0 = otter:span_start(eqc, TID),
-    Sp1 = otter:span_tag(Sp0, service, qec, "eqc"),
+    Sp0 = otters:start(eqc, TID),
+    Sp1 = otters:tag(Sp0, service, qec, "eqc"),
     Opts1 = [{trace_id, TID} | Opts],
     Ref = make_ref(),
     {ok, _, Flow} = dflow:build({dflow_send, [self(), Ref, Eq]}, Opts1),
-    Sp2 = otter:span_log(Sp1, "build", "eqc"),
+    Sp2 = otters:log(Sp1, "build", "eqc"),
     ok = dflow_graph:write_dot("./current.dot", Flow),
-    Sp3 = otter:span_log(Sp2, "write dot", "eqc"),
+    Sp3 = otters:log(Sp2, "write dot", "eqc"),
     dflow:start(Flow, N),
-    Sp4 = otter:span_log(Sp3, "start", "eqc"),
+    Sp4 = otters:log(Sp3, "start", "eqc"),
     {ok, Replies} = dflow_send:recv(Ref),
-    Sp5 = otter:span_log(Sp4, "recv", "eqc"),
+    Sp5 = otters:log(Sp4, "recv", "eqc"),
     ok = dflow_graph:write_dot("./current.dot", Flow),
-    Sp6 = otter:span_log(Sp5, "write new dot", "eqc"),
+    Sp6 = otters:log(Sp5, "write new dot", "eqc"),
     dflow:terminate(Flow),
-    Sp7 = otter:span_log(Sp6, "terminate", "eqc"),
+    Sp7 = otters:log(Sp6, "terminate", "eqc"),
     [Result] = lists:usort(Replies),
-    otter:span_end(Sp7),
+    otters:finish(Sp7),
     {Result, length(Replies)}.
 
 calculate({dflow_debug, [_, C]}) ->

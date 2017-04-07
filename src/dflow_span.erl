@@ -1,47 +1,40 @@
 -module(dflow_span).
 
--export([id/1, start/2, stop/0, tag/2, log/1,
-        fstart/2, flog/2]).
-
--define(IF_SPAN(Code),
-        case otter:span_pget() of
-            undefined ->
-                ok;
-            _ ->
-                Code
-        end).
-
-%% Random 64 bit integer.
-id(undefined) ->
-    undefined;
-
-id(_ParentSpan) ->
-    otter_lib:id().
+-export([start/2,  stop/0,  tag/2,  log/1, log/2,
+         fstart/2, fstop/1, ftag/3, flog/2]).
 
 start(_, undefined) ->
     ok;
 start(Name, TraceID) ->
-    otter:span_pstart(Name, TraceID).
+    case ottersp:get_span() of
+        undefined ->
+            ottersp:start(Name, TraceID);
+        _ ->
+            ok
+    end.
 
 stop() ->
-    ?IF_SPAN(otter:span_pend()).
+    ottersp:finish().
 
 tag(Key, Value) ->
-    ?IF_SPAN(otter:span_ptag(Key, Value, "dflow")).
+    ottersp:tag(Key, Value, "dflow").
+
+log(Fmt, Args) ->
+    log(io_lib:format(Fmt, Args)).
 
 log(Text) ->
-    ?IF_SPAN(otter:span_plog(Text, "dflow")).
+    ottersp:log(Text, "dflow").
 
 %% Function style wrappers
 
-fstart(_Module, undefined) ->
-    undefined;
-
 fstart(Module, TraceID) ->
-    otter:span_start(Module, TraceID).
-
-flog(undefined, _) ->
-    undefined;
+    otters:start(Module, TraceID).
 
 flog(Span, Text) ->
-    otter:span_log(Span, Text, "dflow").
+    otters:log(Span, Text, "dflow").
+
+fstop(S) ->
+    otters:finish(S).
+
+ftag(S, Key, Value) ->
+    otters:tag(S, Key, Value, "dflow").

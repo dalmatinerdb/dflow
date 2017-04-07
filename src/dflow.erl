@@ -434,8 +434,9 @@ init([{PRef, Parent}, {Module, Args}, Queries, Opts]) ->
     process_flag(trap_exit, true),
     Start = erlang:system_time(micro_seconds),
     TraceID = proplists:get_value(trace_id, Opts, undefined),
-    dflow_span:start(dflow, TraceID),
-    dflow_span:log("init"),
+    S = dflow_span:fstart(dflow, TraceID),
+    S1 = dflow_span:ftag(S, module, Module),
+    S2 = dflow_span:flog(S1, "init"),
     {ok, CState, SubQs} = Module:init(Args),
     {Queries1, Children} =
         lists:foldl(
@@ -474,7 +475,7 @@ init([{PRef, Parent}, {Module, Args}, Queries, Opts]) ->
                           end
                   end
           end, {Queries, []}, ensure_refed(SubQs, [])),
-    dflow_span:log("init done"),
+    S3 = dflow_span:flog(S2, "init done"),
     Parent ! {queries, PRef, Queries1},
     QLen = proplists:get_value(max_q_len, Opts, ?MAX_Q_LEN),
     {ok, #state{
@@ -485,6 +486,7 @@ init([{PRef, Parent}, {Module, Args}, Queries, Opts]) ->
             parents = [{PRef, Parent}],
             children = Children,
             timing = #timing_info{start = Start},
+            trace = S3,
             trace_id = TraceID
            }}.
 
@@ -503,30 +505,32 @@ init([{PRef, Parent}, {Module, Args}, Queries, Opts]) ->
 %% @end
 %%--------------------------------------------------------------------
 handle_call({add_parent, Parent}, _From,
-            State = #state{parents = Parents, parent_count = Count}) ->
-    dflow_span:log("add parent"),
+            State = #state{parents = Parents, parent_count = Count,
+                           trace = S}) ->
+    S1 = dflow_span:flog(S, "add parent"),
     {reply, ok, State#state{parents = [Parent | Parents],
+                            trace = S1,
                             parent_count = Count + 1}};
 
 handle_call({emit, Ref, Data}, _From,
             State = #state{callback_state = CState,
-                           callback_module = Mod,
-                           trace = S}) ->
-    S1 = dflow_span:flog(S, "emit start"),
+                           callback_module = Mod}) ->
+    dflow_span:log("emit start"),
     CallbackReply = Mod:emit(Ref, Data, CState),
-    S2 = dflow_span:flog(S1, "emit done"),
+    dflow_span:log("emit done"),
     case handle_callback_reply(CallbackReply, State) of
         {stop, State1} ->
-            {stop, normal, State1#state{trace = S2}};
+            {stop, normal, State1};
         {ok, State1} ->
-            {reply, ok, State1#state{trace = S2}}
+            {reply, ok, State1}
     end;
 
 handle_call(graph, _, State = #state{children = Children,
                                      completed_children = Completed,
                                      callback_state = CState,
-                                     callback_module = Mod}) ->
-    dflow_span:log("graph"),
+                                     callback_module = Mod,
+                                     trace = S}) ->
+    S1 = dflow_span:flog(S, "graph"),
     Children1 = [describe(Child) || {_, _, Child} <- Children ++ Completed],
     Desc = #node{
               pid = self(),
@@ -537,7 +541,7 @@ handle_call(graph, _, State = #state{children = Children,
               timing = State#state.timing,
               children = Children1
              },
-    {reply, Desc, State};
+    {reply, Desc, State#state{trace = S1}};
 
 handle_call(terminate, _From, State = #state{}) ->
     {stop, normal, State};
@@ -564,15 +568,15 @@ handle_cast({start, Payload},
                            trace_id = TraceID,
                            parent_count = PCount})
   when PCount =:= SCount + 1 ->
-    S = otter:span_start(Mod, TraceID),
-    S2 = dflow_span:flog(S, "trigger start"),
+    dflow_span:start(Mod, TraceID),
+    dflow_span:log("trigger start"),
     CallbackReply = Mod:start(Payload, CState),
     [start(Pid, Payload) || {_, _, Pid} <- Children],
     case handle_callback_reply(CallbackReply, State) of
         {stop, State1} ->
-            {stop, normal, State1#state{trace = S2}};
+            {stop, normal, State1};
         {ok, State1} ->
-            {noreply, State1#state{trace = S2}}
+            {noreply, State1}
     end;
 
 handle_cast({start, _Payload}, State = #state{start_count = Count}) ->
@@ -581,13 +585,12 @@ handle_cast({start, _Payload}, State = #state{start_count = Count}) ->
 
 handle_cast({emit, Ref, Data},
             State = #state{callback_state = CState,
-                           trace = S,
                            callback_module = Mod, in = In}) ->
-    S1 = dflow_span:flog(S, "emit start"),
+    dflow_span:log("emit start"),
     CallbackReply = Mod:emit(Ref, Data, CState),
-    S2 = dflow_span:flog(S1, "emit done"),
+    dflow_span:log("emit done"),
     case handle_callback_reply(CallbackReply,
-                               State#state{in = In + 1, trace = S2}) of
+                               State#state{in = In + 1}) of
         {stop, State1} ->
             {stop, normal, State1};
         {ok, State1} ->
@@ -597,32 +600,28 @@ handle_cast({emit, Ref, Data},
 handle_cast({done, Ref}, State = #state{children = Children,
                                         completed_children = Completed,
                                         callback_state = CState,
-                                        trace = S,
                                         callback_module = Mod}) ->
     {State1, CRef} =
         case Children of
             [{Ref, _, _} = C] ->
-                S1 = dflow_span:flog(S, "last child done"),
+                dflow_span:log("last child done"),
                 Completed1 = ordsets:add_element(C, Completed),
                 {State#state{children = [],
-                             trace = S1,
                              completed_children = Completed1},
                  {last, Ref}};
             Children ->
-                S1 = dflow_span:flog(S, "child done"),
+                dflow_span:log("child done"),
                 C = lists:keyfind(Ref, 1, Children),
                 Children1 = lists:keydelete(Ref, 1, Children),
                              Completed1 = ordsets:add_element(C, Completed),
                 {State#state{children = Children1,
-                             trace = S1,
                              completed_children = Completed1},
                  Ref}
         end,
     CallbackReply = Mod:done(CRef, CState),
     State2 = case CRef of
                  {last, _} ->
-                     otter:span_end(State1#state.trace),
-                     State1#state{trace = undefined};
+                     State1;
                  _ ->
                      State1
              end,
@@ -647,25 +646,22 @@ handle_info({'DOWN', MRef, _Type, _Object, _Info},
             State = #state{children = Children,
                            completed_children = Completed,
                            callback_state = CState,
-                           callback_module = Mod,
-                           trace = S}) ->
+                           callback_module = Mod}) ->
     {State1, CRef} =
         case Children of
             [{Ref, MRef, _} = C] ->
-                S1 = dflow_span:flog(S, "last child terminated"),
+                dflow_span:log("last child terminated"),
                 Completed1 = ordsets:del_element(C, Completed),
                 {State#state{children = [],
-                             trace = S1,
                              completed_children = Completed1},
                  {last, Ref}};
             Children ->
                 case lists:keyfind(MRef, 2, Children) of
                     {Ref, _, _} = C ->
-                        S1 = dflow_span:flog(S, "child terminated"),
+                        dflow_span:log("child terminated"),
                         Children1 = lists:keydelete(MRef, 2, Children),
                         Completed1 = ordsets:del_element(C, Completed),
                         {State#state{children = Children1,
-                                     trace = S1,
                                      completed_children = Completed1}, Ref};
                     _ ->
                         {State, undefined}
@@ -675,11 +671,9 @@ handle_info({'DOWN', MRef, _Type, _Object, _Info},
         undefined ->
             {noreply, State1};
         _ ->
-            S2 = dflow_span:flog(State1#state.trace, "trigger done"),
+            dflow_span:log("trigger done"),
             CallbackReply = Mod:done(CRef, CState),
-            dflow_span:stop(),
-            case handle_callback_reply(CallbackReply,
-                                       State1#state{trace = S2}) of
+            case handle_callback_reply(CallbackReply, State1) of
                 {stop, State2} ->
                     {stop, normal, State2};
                 {ok, State2} ->
@@ -701,8 +695,9 @@ handle_info(_Info, State) ->
 %% @spec terminate(Reason, State) -> void()
 %% @end
 %%--------------------------------------------------------------------
-terminate(_Reason, _State) ->
-    dflow_span:stop(),
+terminate(Reason, #state{trace = S}) ->
+    S1 = dflow_span:ftag(S, terminate_reason, Reason),
+    dflow_span:fstop(S1),
     ok.
 
 %%--------------------------------------------------------------------
@@ -756,6 +751,7 @@ handle_callback_reply({ok, CState1}, State) ->
 handle_callback_reply({emit, Data, CState1},
                       State = #state{parents = Parents, out = Out,
                                      max_q_len = QLen}) ->
+    dflow_span:log("emit"),
     emit(Parents, Data, QLen),
     {ok, State#state{callback_state = CState1, out = Out + 1}};
 
@@ -764,7 +760,9 @@ handle_callback_reply({done, Data, CState1},
                                      max_q_len = QLen,
                                      terminate_when_done = false,
                                      timing = T}) ->
+    dflow_span:log("emit"),
     emit(Parents, Data, QLen),
+    dflow_span:stop(),
     done(Parents),
     Stop = erlang:system_time(micro_seconds),
     {ok, State#state{callback_state = CState1, out = Out + 1,
@@ -776,6 +774,7 @@ handle_callback_reply({done, Data, CState1},
                                      max_q_len = QLen,
                                      terminate_when_done = true,
                                      timing = T}) ->
+    dflow_span:stop(),
     emit(Parents, Data, QLen),
     done(Parents),
     Stop = erlang:system_time(micro_seconds),
@@ -787,6 +786,7 @@ handle_callback_reply({done, CState1},
                       State = #state{parents = Parents,
                                      terminate_when_done = false,
                                      timing = T}) ->
+    dflow_span:stop(),
     done(Parents),
     Stop = erlang:system_time(micro_seconds),
     {ok, State#state{callback_state = CState1, done = true,
@@ -794,6 +794,7 @@ handle_callback_reply({done, CState1},
 
 handle_callback_reply({done, CState1}, State = #state{parents = Parents,
                                                       timing = T}) ->
+    dflow_span:stop(),
     done(Parents),
     Stop = erlang:system_time(micro_seconds),
     {stop, State#state{callback_state = CState1, done = true,
