@@ -212,6 +212,7 @@
 -type flow_optsions() :: optimize |
                          terminate_when_done |
                          {trace_id, undefined | integer()} |
+                         {parent_id, undefined | integer()} |
                          {max_q_len, QLen :: pos_integer() | infinity}.
 
 %%--------------------------------------------------------------------
@@ -292,6 +293,7 @@
           done = false :: boolean(),
           timing = #timing_info{},
           trace_id = undefined :: undefined | integer(),
+          parent_id = undefined :: undefined | integer(),
           trace = undefined
          }).
 
@@ -434,9 +436,15 @@ init([{PRef, Parent}, {Module, Args}, Queries, Opts]) ->
     process_flag(trap_exit, true),
     Start = erlang:system_time(micro_seconds),
     TraceID = proplists:get_value(trace_id, Opts, undefined),
-    S = dflow_span:fstart(dflow, TraceID),
+    ParentID = proplists:get_value(parent_id, Opts, undefined),
+    S = dflow_span:fstart(dflow, TraceID, ParentID),
+
+    SpanID = dflow_span:id(S),
     S1 = dflow_span:ftag(S, module, Module),
     S2 = dflow_span:flog(S1, "init"),
+
+    Opts1 = proplists:delete(parent_id, Opts),
+    Opts2 = [{parent_id, SpanID} | Opts1],
     {ok, CState, SubQs} = Module:init(Args),
     {Queries1, Children} =
         lists:foldl(
@@ -446,7 +454,8 @@ init([{PRef, Parent}, {Module, Args}, Queries, Opts]) ->
                           case dict:find(Query, QAcc) of
                               error ->
                                   PSelf = {Ref, self()},
-                                  {ok, Pid} = start_link(PSelf, Query, QAcc, Opts),
+                                  {ok, Pid} = start_link(PSelf, Query, QAcc,
+                                                         Opts2),
                                   receive
                                       {queries, Ref, QAcc1} ->
                                           MRef = monitor(process, Pid),
@@ -464,7 +473,7 @@ init([{PRef, Parent}, {Module, Args}, Queries, Opts]) ->
                           end;
                       false ->
                           PSelf = {Ref, self()},
-                          {ok, Pid} = start_link(PSelf, Query, QAcc, Opts),
+                          {ok, Pid} = start_link(PSelf, Query, QAcc, Opts2),
                           receive
                               {queries, Ref, _} ->
                                   MRef = monitor(process, Pid),
@@ -565,10 +574,10 @@ handle_cast({start, Payload},
                            children = Children,
                            callback_module = Mod,
                            start_count = SCount,
-                           trace_id = TraceID,
+                           trace = Trace,
                            parent_count = PCount})
   when PCount =:= SCount + 1 ->
-    dflow_span:start(Mod, TraceID),
+    dflow_span:start_child(Mod, Trace),
     dflow_span:log("trigger start"),
     CallbackReply = Mod:start(Payload, CState),
     [start(Pid, Payload) || {_, _, Pid} <- Children],

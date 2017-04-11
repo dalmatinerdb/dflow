@@ -1,12 +1,8 @@
 {"1.1.0",
 [{<<"ibrowse">>,{pkg,<<"ibrowse">>,<<"4.4.0">>},1},
- {<<"otter">>,
-  {git,"https://github.com/project-fifo/otter",
-       {ref,"fc4694bffbadfd777418391c7a554e045b5fcbe4"}},
-  0},
- {<<"otters">>,{pkg,<<"otters">>,<<"0.1.0">>},0}]}.
+ {<<"otters">>,{pkg,<<"otters">>,<<"0.1.2">>},0}]}.
 [
 {pkg_hash,[
  {<<"ibrowse">>, <<"2D923325EFE0D2CB09B9C6A047B2835A5EDA69D8A47ED6FF8BC03628B764E991">>},
- {<<"otters">>, <<"82BA0F63F8C0F5FAEC00D990520B65E08224F27EC28B794E028D041390A5DB08">>}]}
+ {<<"otters">>, <<"F4224DA7B2B0CD3E588E903CDC4F07D1A02B19720855E7DAABF1564F7749F052">>}]}
 ].

@@ -37,8 +37,8 @@ equasion(Size) ->
 
 setup() ->
     {ok, _} = application:ensure_all_started(dflow),
-    otter_config:write(zipkin_collector_uri, "http://127.0.0.1:9411/api/v1/spans"),
-    otter_config:write(filter_rules, [{[], [send_to_zipkin]}]),
+    otters_config:write(zipkin_collector_uri, "http://127.0.0.1:9411/api/v1/spans"),
+    otters_config:write(filter_rules, [{[], [send_to_zipkin]}]),
     fun () ->
             ok
     end.
@@ -77,7 +77,7 @@ prop_optimized() ->
                  end))).
 
 run_and_collect(Eq, N, Opts) ->
-    TID = otter_lib:id(),
+    TID = otters_lib:id(),
     Sp0 = otters:start(eqc, TID),
     Sp1 = otters:tag(Sp0, service, qec, "eqc"),
     Opts1 = [{trace_id, TID} | Opts],

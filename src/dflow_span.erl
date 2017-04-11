@@ -1,14 +1,12 @@
 -module(dflow_span).
 
--export([start/2,  stop/0,  tag/2,  log/1, log/2,
-         fstart/2, fstop/1, ftag/3, flog/2]).
+-export([start_child/2,  stop/0,  tag/2,  log/1, log/2,
+         fstart/3, fstop/1, ftag/3, flog/2, id/1]).
 
-start(_, undefined) ->
-    ok;
-start(Name, TraceID) ->
+start_child(Name, Parent) ->
     case ottersp:get_span() of
         undefined ->
-            ottersp:start(Name, TraceID);
+            ottersp:start_child(Name, Parent);
         _ ->
             ok
     end.
@@ -27,8 +25,17 @@ log(Text) ->
 
 %% Function style wrappers
 
-fstart(Module, TraceID) ->
-    otters:start(Module, TraceID).
+id(Span) ->
+    case otters:ids(Span) of
+        {_TraceID, SpanID} ->
+            SpanID;
+        undefined ->
+            undefined
+    end.
+fstart(_Module, undefined, _ParentID) ->
+    undefined;
+fstart(Module, TraceID, ParentID) ->
+    otters:start(Module, TraceID, ParentID).
 
 flog(Span, Text) ->
     otters:log(Span, Text, "dflow").
