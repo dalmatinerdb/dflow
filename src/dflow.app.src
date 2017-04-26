@@ -1,6 +1,6 @@
 {application,dflow,
              [{description,"Pipelined flow processing engine"},
-              {vsn,"0.1.7"},
+              {vsn, git},
               {registered,[]},
               {applications,[kernel, stdlib, otters, ibrowse]},
               {mod,{dflow_app,[]}},

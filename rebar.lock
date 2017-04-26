@@ -1,8 +1,10 @@
 {"1.1.0",
-[{<<"ibrowse">>,{pkg,<<"ibrowse">>,<<"4.4.0">>},1},
- {<<"otters">>,{pkg,<<"otters">>,<<"0.1.2">>},0}]}.
+[{<<"dynamic_compile">>,{pkg,<<"dynamic_compile">>,<<"1.0.0">>},1},
+ {<<"ibrowse">>,{pkg,<<"ibrowse">>,<<"4.4.0">>},1},
+ {<<"otters">>,{pkg,<<"otters">>,<<"0.2.4">>},0}]}.
 [
 {pkg_hash,[
+ {<<"dynamic_compile">>, <<"8171B2CB4953EA3ED2EF63F5B26ABF677ACD0CA32210C2A08A7A8406A743F76B">>},
  {<<"ibrowse">>, <<"2D923325EFE0D2CB09B9C6A047B2835A5EDA69D8A47ED6FF8BC03628B764E991">>},
- {<<"otters">>, <<"F4224DA7B2B0CD3E588E903CDC4F07D1A02B19720855E7DAABF1564F7749F052">>}]}
+ {<<"otters">>, <<"ACFC0DB3A8D4D1EE1C3FD9CC6F7526D9A64AE50250194E602F7925D18E8302DC">>}]}
 ].
