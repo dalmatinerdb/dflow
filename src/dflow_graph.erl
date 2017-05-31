@@ -45,7 +45,8 @@
 
 -spec write_dot(File :: file:name_all(), Flow :: pid()) ->
                        ok |
-                       {error, file:posix() | badarg | terminated | system_limit}.
+                       {error, file:posix() | badarg |
+                        terminated | system_limit}.
 
 write_dot(File, Flow) ->
     file:write_file(File, desc_to_graphviz(dflow:describe(Flow))).
@@ -97,38 +98,7 @@ flatten(Parent = #node{children = Children}, Acc) ->
 label(#node{desc = Desc, pid = Pid}) ->
     [pid_to_list(Pid), Desc].
 
-%[forat_in(State),
-% pid_to_list(self()), $\n, 
-% Mod:describe(CState), format_done(State),
-% format_out(State)],
-
-
 color(#node{done = true}) ->
     "black";
 color(_) ->
     "red".
-
-
-%% format_in(#state{in = 0}) ->
-%%     "";
-%% format_in(#state{in = V}) ->
-%%     ["[", integer_to_list(V), "]\\nV\\n"].
-
-
-%% format_out(#state{out = 0}) ->
-%%     "";
-%% format_out(#state{out = V}) ->
-%%     ["\\n[", integer_to_list(V), "]\\nV"].
-
-%% format_done(#state{completed_children = Done, children = Waiting,
-%%                    done = true }) ->
-%%     NDone = length(Done),
-%%     NTotal = length(Waiting) + NDone,
-%%     ["* (", integer_to_list(NDone), "/", integer_to_list(NTotal), ")"];
-
-
-%% format_done(#state{completed_children = Done, children = Waiting }) ->
-%%     NDone = length(Done),
-%%     NTotal = length(Waiting) + NDone,
-%%     [" (", integer_to_list(NDone), "/", integer_to_list(NTotal), ")"].
-

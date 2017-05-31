@@ -99,7 +99,7 @@ emit(_Child, Data, State = #state{start = Start}) ->
 %% to our parent.
 %%
 %% We always should have only oen child so we'll always be called with
-%% <em>{last, Child}</em>. 
+%% <em>{last, Child}</em>.
 %%
 %% @spec done({last, Child :: reference()}, State :: term()) ->
 %%   {done, State}
