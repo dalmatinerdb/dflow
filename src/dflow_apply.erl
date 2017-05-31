@@ -38,7 +38,7 @@ init([Fun, Pass], [_Sub]) ->
     {ok, #state{func = Fun, pass = (Pass =:= true)}};
 
 init([Fun], [_Sub]) ->
-    {ok, #state{func = Fun}, [_Sub]}.
+    {ok, #state{func = Fun}}.
 
 
 %%--------------------------------------------------------------------
