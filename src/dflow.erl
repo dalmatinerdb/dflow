@@ -115,10 +115,9 @@
          describe/1,
          terminate/1
         ]).
-
-%% Internal API
--export([start_link/4]).
-
+-export([
+         start_link/4
+        ]).
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
@@ -149,7 +148,7 @@
 %% @end
 %%--------------------------------------------------------------------
 
--type step() :: {Module :: atom(), Args :: [term()]}.
+-type step() :: {Module :: atom(), Args :: [term()], SubQs :: [step()]}.
 
 
 %%--------------------------------------------------------------------
@@ -251,19 +250,16 @@
         {done, Data :: term(), State :: term()} |
         {done, State :: term()}.
 
--type child_step() :: {reference(), step()}.
+-type child_step() :: reference().
 
 -type child_steps() ::
-        [step()] |
-        [child_step()] |
-        step() |
-        child_step().
+        [child_step()].
 
 -type step_pref() :: {reference(), pid()}.
 -type step_cref() :: {reference(), reference(), pid()}.
 
--callback init(Args :: [term()]) ->
-    {ok, State :: term(), ChildSteps :: child_steps()}.
+-callback init(Args :: [term()], SubQs::child_steps()) ->
+    {ok, State :: term()}.
 
 -callback describe(State :: term()) ->
     Description :: iodata().
@@ -335,14 +331,19 @@ build(Head) ->
 
 build(Head, Options) ->
     Ref = make_ref(),
+    Tbl = case proplists:get_bool(optimize, Options) of
+              true ->
+                  ets:new(query_opt, [set, public]);
+              false ->
+                  undefined
+          end,
     {ok, Pid} = supervisor:start_child(
-                  dflow_sup, [{Ref, self()}, Head, dict:new(), Options]),
-    receive
-        {queries, Ref, _} ->
-            ok
-    after
-        1000 ->
-            error(timeout)
+                  dflow_sup, [{Ref, self()}, Head, Tbl, Options]),
+    case Tbl of
+        undefined ->
+            ok;
+        _ ->
+            ets:delete(Tbl)
     end,
     {ok, Ref, Pid}.
 
@@ -414,8 +415,8 @@ terminate(Head) ->
 %%   {ok, Pid} | ignore | {error, Error}
 %% @end
 %%--------------------------------------------------------------------
-start_link(Parent, Query, Queries, Opts) ->
-    gen_server:start_link(?MODULE, [Parent, Query, Queries, Opts], []).
+start_link(Parent, Query, Tbl, Opts) ->
+    gen_server:start_link(?MODULE, [Parent, Query, Tbl, Opts], []).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -432,7 +433,7 @@ start_link(Parent, Query, Queries, Opts) ->
 %%                     {stop, Reason}
 %% @end
 %%--------------------------------------------------------------------
-init([{PRef, Parent}, {Module, Args}, Queries, Opts]) ->
+init([{PRef, Parent}, {Module, Args, SubQs}, Tbl, Opts]) ->
     process_flag(trap_exit, true),
     Start = erlang:system_time(micro_seconds),
     TraceID = proplists:get_value(trace_id, Opts, undefined),
@@ -445,47 +446,33 @@ init([{PRef, Parent}, {Module, Args}, Queries, Opts]) ->
 
     Opts1 = proplists:delete(parent_id, Opts),
     Opts2 = [{parent_id, SpanID} | Opts1],
-    {ok, CState, SubQs} = Module:init(Args),
-    {Queries1, Children} =
-        lists:foldl(
-          fun ({Ref, Query}, {QAcc, CAcc}) ->
-                  case proplists:get_bool(optimize, Opts) of
-                      true ->
-                          case dict:find(Query, QAcc) of
-                              error ->
-                                  PSelf = {Ref, self()},
-                                  {ok, Pid} = start_link(PSelf, Query, QAcc,
-                                                         Opts2),
-                                  receive
-                                      {queries, Ref, QAcc1} ->
-                                          MRef = monitor(process, Pid),
-                                          QAcc2 = dict:store(Query, Pid, QAcc1),
-                                          {QAcc2, [{Ref, MRef, Pid} | CAcc]}
-                                  after
-                                      1000 ->
-                                          error(timeout)
-                                  end;
-                              {ok, Pid} ->
-                                  link(Pid),
-                                  MRef = monitor(process, Pid),
-                                  add_parent(Pid, Ref),
-                                  {QAcc, [{Ref, MRef, Pid} | CAcc]}
-                          end;
-                      false ->
-                          PSelf = {Ref, self()},
-                          {ok, Pid} = start_link(PSelf, Query, QAcc, Opts2),
-                          receive
-                              {queries, Ref, _} ->
-                                  MRef = monitor(process, Pid),
-                                  {QAcc, [{Ref, MRef, Pid} | CAcc]}
-                          after
-                              1000 ->
-                                  error(timeout)
-                          end
-                  end
-          end, {Queries, []}, ensure_refed(SubQs, [])),
+    SubQs1 = ensure_refed(SubQs, []),
+    Children = case Tbl of
+                   undefined ->
+                       [begin
+                            PSelf = {Ref, self()},
+                            {ok, Pid} = start_link(PSelf, Query, Tbl, Opts2),
+                            MRef = monitor(process, Pid),
+                            {Ref, MRef, Pid}
+                        end || {Ref, Query} <- SubQs1];
+                   _ ->
+                       ets:insert(Tbl, {{Module, Args, SubQs}, self()}),
+                       [case ets:lookup(Tbl, Query) of
+                            [] ->
+                                PSelf = {Ref, self()},
+                                {ok, Pid} = start_link(PSelf, Query, Tbl,
+                                                       Opts2),
+                                MRef = monitor(process, Pid),
+                                {Ref, MRef, Pid};
+                            [{_Q, Pid}] ->
+                                link(Pid),
+                                MRef = monitor(process, Pid),
+                                add_parent(Pid, Ref),
+                                {Ref, MRef, Pid}
+                        end || {Ref, Query} <- SubQs1]
+                   end,
+    {ok, CState} = Module:init(Args, [QRef || {QRef, _, _} <- Children]),
     S3 = dflow_span:flog(S2, "init done"),
-    Parent ! {queries, PRef, Queries1},
     QLen = proplists:get_value(max_q_len, Opts, ?MAX_Q_LEN),
     {ok, #state{
             callback_module = Module,
@@ -622,7 +609,7 @@ handle_cast({done, Ref}, State = #state{children = Children,
                 dflow_span:log("child done"),
                 C = lists:keyfind(Ref, 1, Children),
                 Children1 = lists:keydelete(Ref, 1, Children),
-                             Completed1 = ordsets:add_element(C, Completed),
+                Completed1 = ordsets:add_element(C, Completed),
                 {State#state{children = Children1,
                              completed_children = Completed1},
                  Ref}
@@ -746,7 +733,7 @@ add_parent(Pid, Ref) ->
 
 
 ensure_refed([], Acc) ->
-    Acc;
+    lists:reverse(Acc);
 ensure_refed([{Ref, Q} | T], Acc) when is_reference(Ref) ->
     ensure_refed(T, [{Ref, Q} | Acc]);
 ensure_refed([Q | T], Acc) ->

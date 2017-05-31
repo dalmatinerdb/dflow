@@ -11,7 +11,7 @@
 
 -behaviour(dflow).
 
--export([init/1, describe/1, start/2, emit/3, done/2]).
+-export([init/2, describe/1, start/2, emit/3, done/2]).
 
 %%--------------------------------------------------------------------
 %% @doc Initializes the constant.
@@ -23,11 +23,10 @@
 %% @end
 %%--------------------------------------------------------------------
 
--spec init([integer()]) ->
-                  {ok, State :: integer(),
-                   SubFlow :: []}.
-init([N]) ->
-    {ok, N, []}.
+-spec init([integer()], []) ->
+                  {ok, State :: integer()}.
+init([N], []) ->
+    {ok, N}.
 
 
 %%--------------------------------------------------------------------

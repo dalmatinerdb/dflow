@@ -11,7 +11,7 @@
 
 -behaviour(dflow).
 
--export([init/1, describe/1, start/2, emit/3, done/2, recv/2, recv/1]).
+-export([init/2, describe/1, start/2, emit/3, done/2, recv/2, recv/1]).
 
 -record(state, {
           pass = false :: boolean(),
@@ -76,11 +76,11 @@ recv(Ref, Timeout) when is_integer(Timeout), Timeout > 0;
 %%
 %% @end
 %%--------------------------------------------------------------------
-init([Pid, Ref, Pass, Sub]) ->
-    {ok, #state{pid = Pid, ref = Ref, pass = (Pass =:= true)}, [Sub]};
+init([Pid, Ref, Pass], [_Sub]) ->
+    {ok, #state{pid = Pid, ref = Ref, pass = (Pass =:= true)}};
 
-init([Pid, Ref, Sub]) ->
-    {ok, #state{pid = Pid, ref = Ref}, [Sub]}.
+init([Pid, Ref], [_Sub]) ->
+    {ok, #state{pid = Pid, ref = Ref}}.
 
 
 %%--------------------------------------------------------------------
