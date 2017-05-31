@@ -15,7 +15,7 @@
 
 -behaviour(dflow).
 
--export([init/1, describe/1, start/2, emit/3, done/2]).
+-export([init/2, describe/1, start/2, emit/3, done/2]).
 
 -type arith_op() ::  '+' | '-' | '*' | '/'.
 
@@ -45,17 +45,14 @@
 %% @end
 %%--------------------------------------------------------------------
 
--spec init([dflow:step() | arith_op()]) ->
-                  {ok, State :: state(),
-                   SubFlow :: [dflow:child_step()]}.
-init([L, Op, R]) when
+-spec init([arith_op()], [dflow:child_step()]) ->
+                  {ok, State :: state()}.
+init([Op], [LRef, RRef]) when
       Op =:= '+' ;
       Op =:= '-' ;
       Op =:= '*' ;
       Op =:= '/' ->
-    LRef = make_ref(),
-    RRef = make_ref(),
-    {ok, #state{op = Op, lref = LRef, rref = RRef}, [{LRef, L}, {RRef, R}]}.
+    {ok, #state{op = Op, lref = LRef, rref = RRef}}.
 
 
 %%--------------------------------------------------------------------

@@ -29,10 +29,10 @@ equasion() ->
 
 equasion(Size) ->
     ?LAZY(oneof(
-            [{df_const, [int()]} || Size == 0]
+            [{df_const, [int()], []} || Size == 0]
             ++ [?LETSHRINK(
                    [L, R], [equasion(Size - 1), equasion(Size - 1)],
-                   {df_arith, [L, op(), R]}) || Size > 0])).
+                   {df_arith, [op()], [L, R]}) || Size > 0])).
 
 
 setup() ->
@@ -82,7 +82,7 @@ run_and_collect(Eq, N, Opts) ->
     Sp1 = otters:tag(Sp0, service, qec, "eqc"),
     Opts1 = [{trace_id, TID} | Opts],
     Ref = make_ref(),
-    {ok, _, Flow} = dflow:build({dflow_send, [self(), Ref, Eq]}, Opts1),
+    {ok, _, Flow} = dflow:build({dflow_send, [self(), Ref], [Eq]}, Opts1),
     Sp2 = otters:log(Sp1, "build", "eqc"),
     ok = dflow_graph:write_dot("./current.dot", Flow),
     Sp3 = otters:log(Sp2, "write dot", "eqc"),
@@ -98,29 +98,29 @@ run_and_collect(Eq, N, Opts) ->
     otters:finish(Sp7),
     {Result, length(Replies)}.
 
-calculate({dflow_debug, [_, C]}) ->
+calculate({dflow_debug, [_], [C]}) ->
     calculate(C);
 
-calculate({df_const, [N]}) ->
+calculate({df_const, [N], []}) ->
     N;
-calculate({df_arith, [L, '+', R]}) ->
+calculate({df_arith, ['+'], [L, R]}) ->
     calculate(L) + calculate(R);
 
-calculate({df_arith, [L, '-', R]}) ->
+calculate({df_arith, ['-'], [L, R]}) ->
     calculate(L) - calculate(R);
 
-calculate({df_arith, [L, '*', R]}) ->
+calculate({df_arith, ['*'], [L, R]}) ->
     calculate(L) * calculate(R).
 
 prettify({dflow_debug, [_, C]}) ->
     prettify(C);
-prettify({df_const, [N]}) ->
+prettify({df_const, [N], []}) ->
     integer_to_list(N);
-prettify({df_arith, [L, '+', R]}) ->
+prettify({df_arith, ['+'], [L, R]}) ->
     [$(, prettify(L),  " + ", prettify(R), $)];
 
-prettify({df_arith, [L, '-', R]}) ->
+prettify({df_arith, ['-'], [L, R]}) ->
     [$(, prettify(L),  " - ", prettify(R), $)];
 
-prettify({df_arith, [L, '*', R]}) ->
+prettify({df_arith, ['*'], [L, R]}) ->
     [$(, prettify(L),  " * ", prettify(R), $)].

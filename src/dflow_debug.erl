@@ -15,7 +15,7 @@
 
 -behaviour(dflow).
 
--export([init/1, describe/1, start/2, emit/3, done/2]).
+-export([init/2, describe/1, start/2, emit/3, done/2]).
 
 -record(state, {show_data = false,
                 start}).
@@ -33,11 +33,11 @@
 %% @end
 %%--------------------------------------------------------------------
 
-init([ShowData, SubF]) when not is_list(SubF) ->
-    {ok, #state{show_data = ShowData}, SubF};
+init([ShowData], [_SubF]) ->
+    {ok, #state{show_data = ShowData}};
 
-init([SubF]) when not is_list(SubF) ->
-    {ok, #state{}, SubF}.
+init([], [_SubF]) ->
+    {ok, #state{}}.
 
 %%--------------------------------------------------------------------
 %% @doc We simpley describe this module as <em>"debug"</em>.
@@ -99,7 +99,7 @@ emit(_Child, Data, State = #state{start = Start}) ->
 %% to our parent.
 %%
 %% We always should have only oen child so we'll always be called with
-%% <em>{last, Child}</em>. 
+%% <em>{last, Child}</em>.
 %%
 %% @spec done({last, Child :: reference()}, State :: term()) ->
 %%   {done, State}

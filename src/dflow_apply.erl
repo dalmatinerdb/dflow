@@ -11,7 +11,7 @@
 
 -behaviour(dflow).
 
--export([init/1, describe/1, start/2, emit/3, done/2]).
+-export([init/2, describe/1, start/2, emit/3, done/2]).
 
 -record(state, {
           pass = false :: boolean(),
@@ -34,11 +34,11 @@
 %%
 %% @end
 %%--------------------------------------------------------------------
-init([Fun, Pass, Sub]) ->
-    {ok, #state{func = Fun, pass = (Pass =:= true)}, [Sub]};
+init([Fun, Pass], [_Sub]) ->
+    {ok, #state{func = Fun, pass = (Pass =:= true)}};
 
-init([Fun, Sub]) ->
-    {ok, #state{func = Fun}, [Sub]}.
+init([Fun], [_Sub]) ->
+    {ok, #state{func = Fun}}.
 
 
 %%--------------------------------------------------------------------
