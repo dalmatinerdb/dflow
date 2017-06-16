@@ -1,4 +1,4 @@
-REBAR = $(shell pwd)/rebar
+REBAR = rebar3
 
 .PHONY: deps rel package
 
